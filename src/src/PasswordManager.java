@@ -1,10 +1,12 @@
 //import org.sqlite.JDBC;
 
 import javax.swing.*;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.security.MessageDigest;
@@ -14,6 +16,7 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
+import java.util.Scanner;
 
 
 public class PasswordManager implements ActionListener{
@@ -121,27 +124,117 @@ public class PasswordManager implements ActionListener{
     }
 
     public void actionPerformed(ActionEvent e) {
-        if(e.getSource() == m1) {
+        if(e.getSource() == m1)
             this.createNewDatabase();
-            //System.out.println("New Database");
+
+        if(e.getSource() == m2) {
+            try {
+                this.openDB();
+            } catch (NoSuchAlgorithmException ex) {
+                throw new RuntimeException(ex);
+            }
         }
-        if(e.getSource() == m2)
-            System.out.println("Open...");
         if(e.getSource() == m3)
             System.out.println("Change Master Password");
+
         if(e.getSource() == m4)
             System.out.println("Empty Database");
+
         if(e.getSource() == buttonGeneratePWD){
             String pwd = generatePassword();
             textPWD.setText(pwd);
         }
 
+        if(e.getSource() == buttonAddCredentials){
+            System.out.println("Add credentials");
+        }
+
 
     }
+
+//---------------------------------------------Help functions-----------------------------------------//
+
+    private String askForMasterPWD(String message){
+        passwordField = new JPasswordField();
+        passwordField.setEchoChar('*');
+        passwordField.setColumns(20);
+        String enterdPWD = "";
+        int status = JOptionPane.showConfirmDialog(mainFrame, passwordField, message, JOptionPane.OK_CANCEL_OPTION);
+        if(status == JOptionPane.OK_OPTION){
+            enterdPWD = Arrays.toString(passwordField.getPassword());
+        }
+
+        return enterdPWD;
+    }
+
+    private String readMasterFile(String path){
+        String content = "";
+        File masterfile = new File(path);
+        try {
+            Scanner s = new Scanner(masterfile);
+            while(s.hasNextLine()){
+                content = s.nextLine();
+            }
+        } catch (FileNotFoundException e) {
+            throw new RuntimeException(e);
+        }
+        return content;
+    }
+
+    private void SQLexecution(String sqlStatement){
+        try(Connection conn = DriverManager.getConnection("jdbc:sqlite:" + this.databasePath); Statement stmt = conn.createStatement()){
+            stmt.execute(sqlStatement);
+        } catch (SQLException e) {
+            System.out.println(e.getMessage());
+        }
+    }
+
+    private String hashPWD(String pwd) throws NoSuchAlgorithmException {
+
+        MessageDigest md = MessageDigest.getInstance("SHA3-256");
+        md.update(pwd.getBytes());
+
+        byte[] digest = md.digest();
+        StringBuilder sb = new StringBuilder();
+        for (byte b : digest){
+            sb.append(String.format("%02x", b & 0xff));
+        }
+
+        return sb.toString();
+    }
+
+//---------------------------------------------actionPerformed functions-----------------------------------------//
 
     private String generatePassword(){
         GeneratePWD gPWD = new GeneratePWD();
         return gPWD.generatePwd();
+    }
+
+    private void openDB() throws NoSuchAlgorithmException {
+        choseFile = new JFileChooser();
+        choseFile.setDialogTitle("Select a database file");
+        choseFile.setCurrentDirectory(new File(System.getProperty("user.dir")));
+        choseFile.setAcceptAllFileFilterUsed(false);
+        FileNameExtensionFilter restrict = new FileNameExtensionFilter("Only .db files", "db");
+        choseFile.addChoosableFileFilter(restrict);
+        int status = choseFile.showOpenDialog(null);
+
+        if(status == JFileChooser.APPROVE_OPTION){
+            this.databasePath = choseFile.getSelectedFile().getAbsolutePath();
+            String userPWD = this.askForMasterPWD("Enter the master password");
+            if(userPWD.isEmpty()){
+                JOptionPane.showMessageDialog(mainFrame, "You must provide the master password to open the database");
+                return;
+            }
+
+            this.masterHash = this.readMasterFile(this.databasePath.substring(0, this.databasePath.length()-2) + "txt");
+            String userHash = this.hashPWD(userPWD);
+            if(!userHash.equals(this.masterHash)){
+                JOptionPane.showMessageDialog(mainFrame, "You entered the wrong master password");
+                this.masterHash = "";
+                this.databasePath = "";
+            }
+        }
     }
 
     private void createNewDatabase() {
@@ -170,18 +263,14 @@ public class PasswordManager implements ActionListener{
             return;
         }
 
-        passwordField = new JPasswordField();
-        passwordField.setEchoChar('*');
-        passwordField.setColumns(20);
-        status = JOptionPane.showConfirmDialog(mainFrame, passwordField, "Enter a master password", JOptionPane.OK_CANCEL_OPTION);
-        if(status == JOptionPane.OK_OPTION){
+        String userPWD = this.askForMasterPWD("Enter a master password");
+        if(!userPWD.isEmpty()){
             try {
-                masterHash = this.hashPWD(Arrays.toString(passwordField.getPassword()));
+                this.masterHash = this.hashPWD(Arrays.toString(passwordField.getPassword()));
             } catch (NoSuchAlgorithmException e) {
                 throw new RuntimeException(e);
             }
-
-            databasePath = path;
+            this.databasePath = path;
 
             String sqlStatement = """
                         CREATE TABLE IF NOT EXISTS Passwords(
@@ -205,7 +294,7 @@ public class PasswordManager implements ActionListener{
             FileWriter fw = null;
             try {
                 fw = new FileWriter(masterFileName);
-                fw.write(masterHash);
+                fw.write(this.masterHash);
                 fw.close();
             } catch (IOException e) {
                 throw new RuntimeException(e);
@@ -213,34 +302,12 @@ public class PasswordManager implements ActionListener{
 
         }
         else{
+            JOptionPane.showMessageDialog(mainFrame, "You must enter a password");
              dbFile.delete();
         }
     }
 
-    private void SQLexecution(String sqlStatement){
-        try(Connection conn = DriverManager.getConnection("jdbc:sqlite:" + databasePath); Statement stmt = conn.createStatement()){
-            stmt.execute(sqlStatement);
-        } catch (SQLException e) {
-            System.out.println(e.getMessage());
-        }
-
-
-        return;
-    }
-
-    private String hashPWD(String pwd) throws NoSuchAlgorithmException {
-
-        MessageDigest md = MessageDigest.getInstance("SHA-256");
-        md.update(pwd.getBytes());
-
-        byte[] digest = md.digest();
-        StringBuffer sb = new StringBuffer();
-        for (byte b : digest){
-            sb.append(String.format("%02x", b & 0xff));
-        }
-
-        return sb.toString();
-    }
+//---------------------------------------------Main function-----------------------------------------//
 
     public static void main(String[] args) {
         new PasswordManager();
