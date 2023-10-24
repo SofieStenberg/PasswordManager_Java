@@ -1,11 +1,24 @@
+//import org.sqlite.JDBC;
+
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.*;
-// import javax.swing.JTextField;
-import java.util.Objects;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.Arrays;
 
 
 public class PasswordManager implements ActionListener{
+    private String masterHash = "";
+    private String databasePath = "";
     JFrame mainFrame;
     JMenuBar menubar;
     JMenu menu;
@@ -15,6 +28,8 @@ public class PasswordManager implements ActionListener{
     JPanel panelInputs;
     JLabel labelUsername, labelPWD, labelDesc;
     GridBagConstraints gbc;
+    JFileChooser choseFile;
+    JPasswordField passwordField;
 
     public PasswordManager(){
         gbc = new GridBagConstraints();
@@ -105,14 +120,11 @@ public class PasswordManager implements ActionListener{
 
     }
 
-    private String generatePassword(){
-        GeneratePWD gPWD = new GeneratePWD();
-        return gPWD.generatePwd();
-    }
-
     public void actionPerformed(ActionEvent e) {
-        if(e.getSource() == m1)
-            System.out.println("New Database");
+        if(e.getSource() == m1) {
+            this.createNewDatabase();
+            //System.out.println("New Database");
+        }
         if(e.getSource() == m2)
             System.out.println("Open...");
         if(e.getSource() == m3)
@@ -125,6 +137,109 @@ public class PasswordManager implements ActionListener{
         }
 
 
+    }
+
+    private String generatePassword(){
+        GeneratePWD gPWD = new GeneratePWD();
+        return gPWD.generatePwd();
+    }
+
+    private void createNewDatabase() {
+        choseFile = new JFileChooser();
+        choseFile.setDialogTitle("Select folder");
+        choseFile.setCurrentDirectory(new File(System.getProperty("user.dir")));
+        choseFile.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        choseFile.setAcceptAllFileFilterUsed(false);
+        File selectedFolder = null;
+        int status = choseFile.showOpenDialog(null);
+        if(status == JFileChooser.APPROVE_OPTION) {
+            selectedFolder = choseFile.getSelectedFile();
+        }
+        else if(status == JFileChooser.CANCEL_OPTION){
+            return;
+        }
+        String dbName = (String)JOptionPane.showInputDialog(mainFrame, "Enter name of the new database");
+        if (dbName.isEmpty()){
+            JOptionPane.showMessageDialog(mainFrame, "You have not chosen a dbfile name.");
+            return;
+        }
+        String path = selectedFolder.getParent() + "\\" + selectedFolder.getName() + "\\" + dbName + ".db";
+        File dbFile = new File(path);
+        if(dbFile.exists()){
+            JOptionPane.showMessageDialog(mainFrame, "The file already exists.");
+            return;
+        }
+
+        passwordField = new JPasswordField();
+        passwordField.setEchoChar('*');
+        passwordField.setColumns(20);
+        status = JOptionPane.showConfirmDialog(mainFrame, passwordField, "Enter a master password", JOptionPane.OK_CANCEL_OPTION);
+        if(status == JOptionPane.OK_OPTION){
+            try {
+                masterHash = this.hashPWD(Arrays.toString(passwordField.getPassword()));
+            } catch (NoSuchAlgorithmException e) {
+                throw new RuntimeException(e);
+            }
+
+            databasePath = path;
+
+            String sqlStatement = """
+                        CREATE TABLE IF NOT EXISTS Passwords(
+                        id          INTEGER     PRIMARY KEY     AUTOINCREMENT,
+                        username    TEXT    NOT NULL,
+                        password    TEXT    NOT NULL,
+                        description TEXT);
+                       """;
+            this.SQLexecution(sqlStatement);
+
+            String masterFileName = selectedFolder.getParent() + "\\" + selectedFolder.getName() + "\\" + dbName + ".txt";
+            File masterFile = new File(masterFileName);
+            try {
+                if(!masterFile.createNewFile()){
+                    System.out.println("Could not create master file");
+                }
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+
+            FileWriter fw = null;
+            try {
+                fw = new FileWriter(masterFileName);
+                fw.write(masterHash);
+                fw.close();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+
+        }
+        else{
+             dbFile.delete();
+        }
+    }
+
+    private void SQLexecution(String sqlStatement){
+        try(Connection conn = DriverManager.getConnection("jdbc:sqlite:" + databasePath); Statement stmt = conn.createStatement()){
+            stmt.execute(sqlStatement);
+        } catch (SQLException e) {
+            System.out.println(e.getMessage());
+        }
+
+
+        return;
+    }
+
+    private String hashPWD(String pwd) throws NoSuchAlgorithmException {
+
+        MessageDigest md = MessageDigest.getInstance("SHA-256");
+        md.update(pwd.getBytes());
+
+        byte[] digest = md.digest();
+        StringBuffer sb = new StringBuffer();
+        for (byte b : digest){
+            sb.append(String.format("%02x", b & 0xff));
+        }
+
+        return sb.toString();
     }
 
     public static void main(String[] args) {
