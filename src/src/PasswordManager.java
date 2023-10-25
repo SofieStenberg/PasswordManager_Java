@@ -11,12 +11,10 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.SQLException;
-import java.sql.Statement;
+import java.sql.*;
 import java.util.Arrays;
 import java.util.Scanner;
+import java.lang.reflect.Array;
 
 
 public class PasswordManager implements ActionListener{
@@ -101,6 +99,7 @@ public class PasswordManager implements ActionListener{
         panelInputs.add(textDesc, gbc);
 
         buttonAddCredentials = new JButton("Add Credentials");
+        buttonAddCredentials.addActionListener(this);
         gbc.gridx = 3;
         gbc.gridy = 1;
         panelInputs.add(buttonAddCredentials, gbc);
@@ -137,16 +136,18 @@ public class PasswordManager implements ActionListener{
         if(e.getSource() == m3)
             System.out.println("Change Master Password");
 
-        if(e.getSource() == m4)
-            System.out.println("Empty Database");
+        if(e.getSource() == m4){
+            String[] values = {};
+            this.SQLexecution("DELETE FROM Passwords", values);
+        }
 
         if(e.getSource() == buttonGeneratePWD){
             String pwd = generatePassword();
-            textPWD.setText(pwd);
+            this.textPWD.setText(pwd);
         }
 
         if(e.getSource() == buttonAddCredentials){
-            System.out.println("Add credentials");
+            this.addCredentials();
         }
 
 
@@ -181,13 +182,21 @@ public class PasswordManager implements ActionListener{
         return content;
     }
 
-    private void SQLexecution(String sqlStatement){
-        try(Connection conn = DriverManager.getConnection("jdbc:sqlite:" + this.databasePath); Statement stmt = conn.createStatement()){
-            stmt.execute(sqlStatement);
+    private void SQLexecution(String statement, String[] values){
+        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + this.databasePath);
+             PreparedStatement pstmt = conn.prepareStatement(statement)) {
+            if (values.length != 0){
+                for (int i = 0; i < values.length; i++)
+                    pstmt.setString(i+1, Array.get(values, i).toString());
+            }
+            pstmt.executeUpdate();
+
         } catch (SQLException e) {
-            System.out.println(e.getMessage());
+            throw new RuntimeException(e);
         }
     }
+
+
 
     private String hashPWD(String pwd) throws NoSuchAlgorithmException {
 
@@ -209,6 +218,30 @@ public class PasswordManager implements ActionListener{
         GeneratePWD gPWD = new GeneratePWD();
         return gPWD.generatePwd();
     }
+
+    private void addCredentials(){
+        if (this.databasePath.isEmpty()){
+            JOptionPane.showMessageDialog(mainFrame, "You have to choose a database first");
+            return;
+        }
+
+        if (this.textUsername.getText().isEmpty() || this.textPWD.getText().isEmpty()){
+            JOptionPane.showMessageDialog(mainFrame, "You have to provide a username and a password");
+            return;
+        }
+
+        Caesar c = new Caesar();
+
+        String[] values = {this.textUsername.getText(), c.encrypt(this.textPWD.getText(), this.masterHash), this.textDesc.getText()};
+        String statement = "INSERT INTO Passwords(username, password, description) VALUES(?,?,?)";
+        this.SQLexecution(statement, values);
+
+        this.textUsername.setText("");
+        this.textPWD.setText("");
+        this.textDesc.setText("");
+
+    }
+
 
     private void openDB() throws NoSuchAlgorithmException {
         choseFile = new JFileChooser();
@@ -279,7 +312,9 @@ public class PasswordManager implements ActionListener{
                         password    TEXT    NOT NULL,
                         description TEXT);
                        """;
-            this.SQLexecution(sqlStatement);
+            // this.SQLexecution(sqlStatement);
+            String[] values = {};
+            this.SQLexecution(sqlStatement, values);
 
             String masterFileName = selectedFolder.getParent() + "\\" + selectedFolder.getName() + "\\" + dbName + ".txt";
             File masterFile = new File(masterFileName);
