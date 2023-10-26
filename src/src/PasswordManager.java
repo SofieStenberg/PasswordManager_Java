@@ -2,6 +2,7 @@
 
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -17,20 +18,27 @@ import java.util.Scanner;
 import java.lang.reflect.Array;
 
 
+
 public class PasswordManager implements ActionListener{
     private String masterHash = "";
     private String databasePath = "";
+    int columns = 4;
+    int rows = 0;
+    private String[][] DBcontent = new String[rows][columns];
     JFrame mainFrame;
     JMenuBar menubar;
     JMenu menu;
     JMenuItem m1, m2, m3, m4;
     JButton buttonAddCredentials, buttonGeneratePWD;
     JTextField textUsername, textPWD, textDesc;
-    JPanel panelInputs;
+    JPanel panelInputs, panelDB;
     JLabel labelUsername, labelPWD, labelDesc;
     GridBagConstraints gbc;
     JFileChooser choseFile;
     JPasswordField passwordField;
+    JTable tableDB;
+    // JScrollPane tableScroll;
+    DefaultTableModel tableModel;
 
     public PasswordManager(){
         gbc = new GridBagConstraints();
@@ -111,10 +119,28 @@ public class PasswordManager implements ActionListener{
         panelInputs.add(buttonGeneratePWD, gbc);
 
 
+        String[] headers = { "ID", "Username", "Password", "Description" };
+        String[][] rowContent = {{null, null, null, null}};
+        panelDB = new JPanel();
+        panelDB.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        tableModel = new DefaultTableModel();
+        //tableDB = new JTable(rowContent, headers);
+        tableDB = new JTable(tableModel);
+        tableModel.addColumn("ID");
+        tableModel.addColumn("Username");
+        tableModel.addColumn("Description");
+        tableModel.addColumn("Password");
+        panelDB.add(new JScrollPane(tableDB));
+
+        gbc.gridx = 0;
+        gbc.gridwidth = 4;
+        gbc.gridy = 4;
+        panelInputs.add(panelDB, gbc);
 
 
 
         //--------------------------------------Makes everything visible-----------------------------------------------------//
+
         mainFrame.add(panelInputs);
         mainFrame.pack();
         mainFrame.setLocationRelativeTo(null);
@@ -133,24 +159,18 @@ public class PasswordManager implements ActionListener{
                 throw new RuntimeException(ex);
             }
         }
+
         if(e.getSource() == m3)
             System.out.println("Change Master Password");
 
-        if(e.getSource() == m4){
-            String[] values = {};
-            this.SQLexecution("DELETE FROM Passwords", values);
-        }
+        if(e.getSource() == m4)
+            this.emptyDB();
 
-        if(e.getSource() == buttonGeneratePWD){
-            String pwd = generatePassword();
-            this.textPWD.setText(pwd);
-        }
+        if(e.getSource() == buttonGeneratePWD)
+            this.textPWD.setText(generatePassword());
 
-        if(e.getSource() == buttonAddCredentials){
+        if(e.getSource() == buttonAddCredentials)
             this.addCredentials();
-        }
-
-
     }
 
 //---------------------------------------------Help functions-----------------------------------------//
@@ -181,22 +201,43 @@ public class PasswordManager implements ActionListener{
         }
         return content;
     }
-
-    private void SQLexecution(String statement, String[] values){
+    private void SQLexecution(String statement, String[] values, boolean read){
         try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + this.databasePath);
-             PreparedStatement pstmt = conn.prepareStatement(statement)) {
-            if (values.length != 0){
-                for (int i = 0; i < values.length; i++)
-                    pstmt.setString(i+1, Array.get(values, i).toString());
+             ) {
+            PreparedStatement pstmt = null;
+            if (read){
+                pstmt = conn.prepareStatement("SELECT COUNT(*) FROM Passwords");
+                ResultSet rs = pstmt.executeQuery();
+                rs.next();
+                this.rows = rs.getInt(1);
+                this.DBcontent = new String[this.rows][this.columns];
+                if (rows > 0){
+                    pstmt = conn.prepareStatement(statement);
+                    rs = pstmt.executeQuery();
+                    int outerIndex = 0;
+                    while (rs.next()){
+                        this.DBcontent[outerIndex][0] = String.valueOf(rs.getInt("ID"));
+                        this.DBcontent[outerIndex][1] = rs.getString("Username");
+                        this.DBcontent[outerIndex][2] = rs.getString("Description");
+                        this.DBcontent[outerIndex][3] = rs.getString("Password");
+                        outerIndex++;
+                    }
+                }
             }
-            pstmt.executeUpdate();
 
+            else{
+                pstmt = conn.prepareStatement(statement);
+                if (values.length != 0){
+                    for (int i = 0; i < values.length; i++)
+                        pstmt.setString(i+1, Array.get(values, i).toString());
+                }
+                pstmt.executeUpdate();
+            }
+            conn.close();
         } catch (SQLException e) {
             throw new RuntimeException(e);
         }
     }
-
-
 
     private String hashPWD(String pwd) throws NoSuchAlgorithmException {
 
@@ -212,6 +253,22 @@ public class PasswordManager implements ActionListener{
         return sb.toString();
     }
 
+    private boolean checkSelectedDB(){
+        if (this.databasePath.isEmpty()){
+            JOptionPane.showMessageDialog(mainFrame, "You have to choose a database first");
+            return false;
+        }
+        return true;
+    }
+
+    private void displayDBtable(){
+        this.tableModel.getDataVector().removeAllElements();
+        String[] values = {};
+        this.SQLexecution("SELECT id, username, description, password FROM Passwords", values, true);
+        for (int i = 0; i < this.DBcontent.length; i++)
+            this.tableModel.addRow(new Object[]{this.DBcontent[i][0], this.DBcontent[i][1], this.DBcontent[i][2], this.DBcontent[i][3]});
+    }
+
 //---------------------------------------------actionPerformed functions-----------------------------------------//
 
     private String generatePassword(){
@@ -219,11 +276,18 @@ public class PasswordManager implements ActionListener{
         return gPWD.generatePwd();
     }
 
-    private void addCredentials(){
-        if (this.databasePath.isEmpty()){
-            JOptionPane.showMessageDialog(mainFrame, "You have to choose a database first");
+    private void emptyDB(){
+        if (!this.checkSelectedDB())
             return;
-        }
+
+        String[] values = {};
+        this.SQLexecution("DELETE FROM Passwords", values, false);
+        this.displayDBtable();
+    }
+
+    private void addCredentials(){
+        if (!this.checkSelectedDB())
+            return;
 
         if (this.textUsername.getText().isEmpty() || this.textPWD.getText().isEmpty()){
             JOptionPane.showMessageDialog(mainFrame, "You have to provide a username and a password");
@@ -234,12 +298,13 @@ public class PasswordManager implements ActionListener{
 
         String[] values = {this.textUsername.getText(), c.encrypt(this.textPWD.getText(), this.masterHash), this.textDesc.getText()};
         String statement = "INSERT INTO Passwords(username, password, description) VALUES(?,?,?)";
-        this.SQLexecution(statement, values);
+        this.SQLexecution(statement, values, false);
 
         this.textUsername.setText("");
         this.textPWD.setText("");
         this.textDesc.setText("");
 
+        this.displayDBtable();
     }
 
 
@@ -268,6 +333,7 @@ public class PasswordManager implements ActionListener{
                 this.databasePath = "";
             }
         }
+        this.displayDBtable();
     }
 
     private void createNewDatabase() {
@@ -312,9 +378,8 @@ public class PasswordManager implements ActionListener{
                         password    TEXT    NOT NULL,
                         description TEXT);
                        """;
-            // this.SQLexecution(sqlStatement);
             String[] values = {};
-            this.SQLexecution(sqlStatement, values);
+            this.SQLexecution(sqlStatement, values, false);
 
             String masterFileName = selectedFolder.getParent() + "\\" + selectedFolder.getName() + "\\" + dbName + ".txt";
             File masterFile = new File(masterFileName);
@@ -340,6 +405,8 @@ public class PasswordManager implements ActionListener{
             JOptionPane.showMessageDialog(mainFrame, "You must enter a password");
              dbFile.delete();
         }
+
+        this.displayDBtable();
     }
 
 //---------------------------------------------Main function-----------------------------------------//
