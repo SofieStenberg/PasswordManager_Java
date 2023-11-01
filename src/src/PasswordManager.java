@@ -6,10 +6,7 @@ import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileWriter;
-import java.io.IOException;
+import java.io.*;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.*;
@@ -28,7 +25,6 @@ public class PasswordManager implements ActionListener{
     int columns = 4;
     int rows = 0;
     private String[][] DBcontent = new String[rows][columns];
-    private String[] DBpasswords = new String[rows];
     JFrame mainFrame;
     JMenuBar menubar;
     JMenu menu;
@@ -152,10 +148,6 @@ public class PasswordManager implements ActionListener{
         gbc.gridy = 5;
         panelInputs.add(buttonHidePassword, gbc);
 
-
-
-
-
         //--------------------------------------Makes everything visible-----------------------------------------------------//
 
         mainFrame.add(panelInputs);
@@ -177,8 +169,13 @@ public class PasswordManager implements ActionListener{
             }
         }
 
-        if(e.getSource() == m3)
-            System.out.println("Change Master Password");
+        if(e.getSource() == m3) {
+            try {
+                this.changeMasterPWD();
+            } catch (NoSuchAlgorithmException ex) {
+                throw new RuntimeException(ex);
+            }
+        }
 
         if(e.getSource() == m4)
             this.emptyDB();
@@ -293,15 +290,72 @@ public class PasswordManager implements ActionListener{
 
     }
 
-
 //---------------------------------------------actionPerformed functions-----------------------------------------//
+
+    private void changeMasterPWD() throws NoSuchAlgorithmException {
+        if (!this.checkSelectedDB())
+            return;
+
+        String oldMasterPWD = this.askForMasterPWD("Enter the current master password");
+        if(oldMasterPWD.isEmpty()){
+            JOptionPane.showMessageDialog(mainFrame, "You must enter the current master password");
+            return;
+        }
+        if (!this.hashPWD(oldMasterPWD).equals(this.masterHash)) {
+            JOptionPane.showMessageDialog(mainFrame, "Wrong master password");
+            return;
+        }
+        String newMasterPWD = this.askForMasterPWD("Enter a new master password");
+        if(newMasterPWD.isEmpty()){
+            JOptionPane.showMessageDialog(mainFrame, "You must enter a new master password");
+            return;
+        }
+        String newMasterHash = hashPWD(newMasterPWD);
+
+        String[] encryptedPWD = new String[this.tableDB.getRowCount()];
+        String[] decryptedPWD = new String[this.tableDB.getRowCount()];
+        int index = 0;
+
+        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + this.databasePath)) {
+            PreparedStatement pstmt = null;
+            pstmt = conn.prepareStatement("SELECT password FROM passwords");
+            ResultSet rs = pstmt.executeQuery();
+            while(rs.next()){
+                encryptedPWD[index] = rs.getString("password");
+                index++;
+            }
+
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+
+        for(int i = 0; i < this.tableDB.getRowCount(); i++)
+            decryptedPWD[i] = c.decrypt(encryptedPWD[i], this.masterHash);
+
+        String[] values = new String[2];
+        String statement = "UPDATE passwords SET password = ? WHERE id = ?";
+        for(int i = 0; i < this.tableDB.getRowCount(); i++){
+            values[0] = c.encrypt(decryptedPWD[i], newMasterHash);
+            values[1] = (String) this.tableDB.getValueAt(i, 0);
+            this.SQLexecution(statement, values, false);
+        }
+
+        this.masterHash = newMasterHash;
+        try {
+            PrintWriter writer = new PrintWriter(this.databasePath.substring(0, this.databasePath.length()-2) + "txt");
+            writer.println(this.masterHash);
+            writer.close();
+        } catch (FileNotFoundException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     private void hidePWD(){
         if (!this.checkSelectedDB())
             return;
 
         int selectedRow = this.tableDB.getSelectedRow();
-        if(selectedRow == -1){
+        if(selectedRow < 0 || selectedRow > this.tableDB.getRowCount()){
             JOptionPane.showMessageDialog(mainFrame, "You have to select a row");
             return;
         }
@@ -337,12 +391,10 @@ public class PasswordManager implements ActionListener{
 
         String decryptedPWD = c.decrypt(selectedPWD, this.masterHash);
         this.DBcontent[selectedRow][this.columns-1] = decryptedPWD;
-        System.out.println(this.DBcontent[selectedRow][0] + " " + this.DBcontent[selectedRow][1] + " " + this.DBcontent[selectedRow][2] + " " + this.DBcontent[selectedRow][3]);
         this.displayDBtable(true);
     }
 
     private String generatePassword(){
-//        GeneratePWD gPWD = new GeneratePWD();
         return gPWD.generatePwd();
     }
 
@@ -374,7 +426,6 @@ public class PasswordManager implements ActionListener{
 
         this.displayDBtable(false);
     }
-
 
     private void openDB() throws NoSuchAlgorithmException {
         choseFile = new JFileChooser();
@@ -481,22 +532,6 @@ public class PasswordManager implements ActionListener{
 
     public static void main(String[] args) {
         new PasswordManager();
-
-
-
-
-
-//        Caesar c = new Caesar();
-//        GeneratePWD gPWD = new GeneratePWD();
-//
-//        String pwd = gPWD.generatePwd();
-//        System.out.println(pwd);
-//
-//        String encrypted = c.encrypt(pwd, "supersecret_password");
-//        System.out.println(encrypted);
-//
-//        String decrypted = c.decrypt(encrypted, "supersecret_password");
-//        System.out.println(decrypted);
     }
 
 }
