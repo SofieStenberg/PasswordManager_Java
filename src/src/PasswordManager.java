@@ -191,10 +191,9 @@ public class PasswordManager implements ActionListener{
 
         if(e.getSource() == buttonShowPassword)
             this.displayPWD();
-//            System.out.println("Display Password");
 
         if(e.getSource() == buttonHidePassword)
-            System.out.println("Hide Password");
+            this.hidePWD();
     }
 
 //---------------------------------------------Help functions-----------------------------------------//
@@ -225,6 +224,7 @@ public class PasswordManager implements ActionListener{
         }
         return content;
     }
+
     private void SQLexecution(String statement, String[] values, boolean read){
         try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + this.databasePath)) {
             PreparedStatement pstmt = null;
@@ -242,7 +242,6 @@ public class PasswordManager implements ActionListener{
                         this.DBcontent[outerIndex][0] = String.valueOf(rs.getInt("ID"));
                         this.DBcontent[outerIndex][1] = rs.getString("Username");
                         this.DBcontent[outerIndex][2] = rs.getString("Description");
-                        //this.DBcontent[outerIndex][3] = rs.getString("Password");
                         outerIndex++;
                     }
                 }
@@ -256,7 +255,6 @@ public class PasswordManager implements ActionListener{
                 }
                 pstmt.executeUpdate();
             }
-            conn.close();
         } catch (SQLException e) {
             throw new RuntimeException(e);
         }
@@ -295,10 +293,33 @@ public class PasswordManager implements ActionListener{
 
     }
 
+
 //---------------------------------------------actionPerformed functions-----------------------------------------//
 
-    private void displayPWD() {
+    private void hidePWD(){
+        if (!this.checkSelectedDB())
+            return;
+
         int selectedRow = this.tableDB.getSelectedRow();
+        if(selectedRow == -1){
+            JOptionPane.showMessageDialog(mainFrame, "You have to select a row");
+            return;
+        }
+
+        this.DBcontent[selectedRow][this.columns-1] = "";
+        this.displayDBtable(true);
+    }
+
+    private void displayPWD() {
+        if (!this.checkSelectedDB())
+            return;
+
+        int selectedRow = this.tableDB.getSelectedRow();
+        if(selectedRow == -1){
+            JOptionPane.showMessageDialog(mainFrame, "You have to select a row");
+            return;
+        }
+
         int id = Integer.parseInt(this.DBcontent[selectedRow][0]);
         String selectedPWD = "";
 
