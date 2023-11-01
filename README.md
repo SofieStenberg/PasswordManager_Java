@@ -16,4 +16,4 @@ Other functionalities is attached to the buttons:
 - Show the password related to a selected row
 - Hide the password related to a selected row
 
-![](./screenshots/front.png)
+![](./screenshots/front.PNG)
